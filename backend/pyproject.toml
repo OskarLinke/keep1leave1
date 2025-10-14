@@ -1,0 +1,7 @@
+[project]
+name = "keep-1-leave-1-backend"
+version = "0.1.0"
+description = "Keep 1 Leave 1 backend"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["fastapi", "uvicorn", "sqlalchemy", "pydantic"]
