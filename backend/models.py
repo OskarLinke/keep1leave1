@@ -14,11 +14,17 @@ class Word(Base):
     word = Column(String(100), unique=True, index=True)
     wins = Column(Integer, default=0)
     losses = Column(Integer, default=0)
-    times_shown = Column(Integer, default==0) 
+    
+    @property
+    def times_shown(self):
+        return self.wins + self.losses
 
     @property
     def win_rate(self):
-        if self.losses == 0: 
+        
+        if self.wins == 0: 
+            return 0.0
+        elif self.losses == 0:
             return 1.0
         return self.wins / (self.wins + self.losses)
 
