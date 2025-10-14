@@ -7,7 +7,19 @@ import random
 
 from models import Word, Vote, Base, engine 
 
-from pydantic import BaseModel 
+from pydantic import BaseModel
+
+from typing import Optional
+
+class VoteResponse(BaseModel):
+    message: str
+    winner: str
+    loser: str
+    next_opponent: Optional[dict] = None
+
+class NextOpponent(BaseModel):
+    word: str
+    id: int
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -30,6 +42,34 @@ class VoteRequest(BaseModel):
     winner_id: int
     loser_id: int
 
+
+def get_next_opponent(winner_id: int, loser_id: int, db: Session):
+    """Get a word from the bottom 10 with win rate higher than the loser"""
+    winner = db.query(Word).filter(Word.id == winner_id).first()
+    loser = db.query(Word).filter(Word.id == loser_id).first()
+    
+    if not winner or not loser:
+        return None
+    
+    # Get all words except the winner, sorted by win rate (lowest first)
+    all_words = db.query(Word).filter(Word.id != winner_id).all()
+    
+    # Sort by win rate (lowest first) to get the bottom words
+    sorted_words = sorted(all_words, key=lambda w: w.win_rate)
+
+    # Filter for words with win rate higher than the loser
+    better_than_loser = [w for w in sorted_words if w.win_rate > loser.win_rate]
+    
+    if not better_than_loser:
+        return None  # No words with higher win rate than the loser
+    
+    # Take the bottom 10 from the words that are better than the loser
+    bottom_better_words = better_than_loser[:10]
+    
+    if bottom_better_words:
+        return random.choice(bottom_better_words)
+    return None
+
 @app.get("/")
 def read_root():
     return {"message": "K1L1 API"}
@@ -46,11 +86,16 @@ def get_word_pair(db: Session = Depends(get_db)):
             word2="whales", word2_id=2
         )
     
-    word1, word2 = random.sample(words, 2)
+    # For the initial pair, get two from the bottom 10 by win rate
+    sorted_words = sorted(words, key=lambda w: w.win_rate)
+    low_rated_words = sorted_words[:10]
+    
+    if len(low_rated_words) >= 2:
+        word1, word2 = random.sample(low_rated_words, 2)
+    else:
+        # Fallback if we don't have 10 words yet
+        word1, word2 = random.sample(words, 2)
 
-    # Update times shown
-    word1.times_shown += 1
-    word2.times_shown += 1
     db.commit()
 
     return WordPair(
@@ -58,9 +103,9 @@ def get_word_pair(db: Session = Depends(get_db)):
             word2=word2.word, word2_id=word2.id
             )
 
-@app.post("/api/vote") 
+@app.post("/api/vote", response_model=VoteResponse)
 def submit_vote(vote: VoteRequest, db: Session = Depends(get_db)):
-    """Submit a vote"""
+    """Submit a vote and get the next word pair with the winner facing a better opponent"""
     # Update word statistics
     winner = db.query(Word).filter(Word.id == vote.winner_id).first()
     loser = db.query(Word).filter(Word.id == vote.loser_id).first()
@@ -76,7 +121,29 @@ def submit_vote(vote: VoteRequest, db: Session = Depends(get_db)):
     db.add(vote_record)
     db.commit()
     
-    return {"message": "Vote recorded", "winner": winner.word, "loser": loser.word}
+    # Get the next opponent for the winner (from bottom 10 with win rate higher than loser)
+    next_opponent = get_next_opponent(winner.id, loser.id, db)
+    
+    if next_opponent:
+        # Update times shown for the next opponent
+        db.commit()
+        
+        return {
+            "message": "Vote recorded", 
+            "winner": winner.word,
+            "loser": loser.word,
+            "next_opponent": {
+                "word": next_opponent.word,
+                "id": next_opponent.id
+            }
+        }
+    else:
+        return {
+            "message": "Thanks for playing! No more opponents available.",
+            "winner": winner.word,
+            "loser": loser.word,
+            "next_opponent": None
+        }
 
 @app.get("/api/rankings")
 def get_rankings(db: Session = Depends(get_db)):
@@ -95,7 +162,7 @@ def get_rankings(db: Session = Depends(get_db)):
             "word": word.word,
             "wins": word.wins,
             "losses": word.losses,
-            "ratio": word.win_rate,
+            "win rate": word.win_rate,
             "times_shown": word.times_shown
         }
         for word in ranked_words
