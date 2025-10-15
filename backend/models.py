@@ -22,8 +22,8 @@ class Word(Base):
     @property
     def win_rate(self):
         
-        if self.wins == 0: 
-            return 0.0
+        if self.wins == 0 and self.losses == 0: 
+            return 0.5
         elif self.losses == 0:
             return 1.0
         return self.wins / (self.wins + self.losses)
