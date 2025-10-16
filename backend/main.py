@@ -11,6 +11,21 @@ from pydantic import BaseModel
 
 from typing import Optional
 
+# ADD CORS IMPORTS
+from fastapi.middleware.cors import CORSMiddleware
+
+
+app = FastAPI(title="K1L1 API") 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Next.js frontend
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
+
+losers_id_list = []
+
 class VoteResponse(BaseModel):
     message: str
     winner: str
@@ -19,11 +34,10 @@ class VoteResponse(BaseModel):
 
 class NextOpponent(BaseModel):
     word: str
-    id: int
+    word_id: int
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-app = FastAPI(title="K1L1 API") 
 
 def get_db():
     db = SessionLocal()
@@ -42,12 +56,18 @@ class VoteRequest(BaseModel):
     winner_id: int
     loser_id: int
 
+@app.get("/api/next-opponent", response_model = NextOpponent) 
+def get_next_opponent(winner_id: int, loser_id: int, db: Session = Depends(get_db)):
 
-def get_next_opponent(winner_id: int, loser_id: int, db: Session):
     """Get a word from the bottom 10 with win rate higher than the loser"""
+   
+    
+
+    losers_id_list.append(loser_id)
+    print("losers_id_list", losers_id_list)
     winner = db.query(Word).filter(Word.id == winner_id).first()
     loser = db.query(Word).filter(Word.id == loser_id).first()
-    
+
     if not winner or not loser:
         return None
     
@@ -65,9 +85,13 @@ def get_next_opponent(winner_id: int, loser_id: int, db: Session):
     
     # Take the bottom 10 from the words that are better than the loser
     bottom_better_words = better_than_loser[:10]
+
+    #filter out words in losers_id_list
+    bottom_better_words = [w for w in bottom_better_words if w.id not in losers_id_list]
     
     if bottom_better_words:
-        return random.choice(bottom_better_words)
+        word = random.choice(bottom_better_words)
+        return NextOpponent(word = word.word, word_id = word.id)
     return None
 
 @app.get("/")
@@ -121,29 +145,17 @@ def submit_vote(vote: VoteRequest, db: Session = Depends(get_db)):
     db.add(vote_record)
     db.commit()
     
-    # Get the next opponent for the winner (from bottom 10 with win rate higher than loser)
-    next_opponent = get_next_opponent(winner.id, loser.id, db)
+
     
-    if next_opponent:
-        # Update times shown for the next opponent
-        db.commit()
+    
         
-        return {
+    return {
             "message": "Vote recorded", 
             "winner": winner.word,
             "loser": loser.word,
-            "next_opponent": {
-                "word": next_opponent.word,
-                "id": next_opponent.id
             }
-        }
-    else:
-        return {
-            "message": "Thanks for playing! No more opponents available.",
-            "winner": winner.word,
-            "loser": loser.word,
-            "next_opponent": None
-        }
+  
+
 
 @app.get("/api/rankings")
 def get_rankings(db: Session = Depends(get_db)):
@@ -162,7 +174,7 @@ def get_rankings(db: Session = Depends(get_db)):
             "word": word.word,
             "wins": word.wins,
             "losses": word.losses,
-            "win rate": word.win_rate,
+            "win_rate": word.win_rate,
             "times_shown": word.times_shown
         }
         for word in ranked_words
@@ -172,9 +184,16 @@ def get_rankings(db: Session = Depends(get_db)):
 def seed_database(db: Session = Depends(get_db)):
     """Seed the database with some initial words"""
     initial_words = [
-        "water", "fire", "mud", "oxygen", "paintings",
+        "mud" , "paintings", "bicycles", "cars", "boats", "trains", "planes", "airplanes", "rockets", "helicopters",
+        "firefighters", "police", "nurses", "coffee", "tea", "chocolate", "ice cream", "cake", "cookies", 
+        "kebab", "apples", "oranges", "bananas", "grapes", "strawberries", "blueberries", "raspberries", "peaches",
+        "avocados", "tomatoes", "cucumbers", "broccoli", "peppers", "onions", "garlic", "mushrooms", "lettuce", "salt", 
+        "tigers" , "lions", "bears", "wolves", "foxes", "eagles", "snakes", "lizards", "dolphins", "sharks",
         "candy", "trees", "mountains", "swimming pools", "river", "smart phones",
-        "computers", "books", "music", "chess", "tofu", "rice", "pasta", "bread", "potatoes", "whales", "fish"
+        "computers", "books", "music", "chess", "tofu", "rice", "pasta", "bread", "potatoes", "whales", "fish", 
+        "cats", "dogs", "mice", "geese", "ducks", "frogs", "turtles", "spiders", 
+        "bees", "ants", "wasps", "beetles", "butterflies", "fireflies", "plant-based milk", "knitted sweaters", 
+        "socks", "birkenstocks", "dishwashers", "TVs", "refrigerators", "wine", "beer", "roskilde festival"
     ]
     
     added_count = 0
